@@ -1,0 +1,183 @@
+<body>
+
+</body>
+<head>
+<script src="linear_algebra.js"></script>
+<script src="expectation_maximization.js"></script>
+<script src="cluster_generator.js"></script>
+<script>
+let col = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"];
+	
+let dataset = generateClusters(3, 50, 100, 20, 100);
+let canvasWidth = 1000;
+let canvasHeight = 600;
+
+let slide = document.createElement("input");
+slide.type = "range";
+slide.min = "0";
+
+
+let cnv = document.createElement("canvas");
+cnv.width = canvasWidth;
+cnv.height = canvasHeight;
+
+document.body.appendChild(cnv);
+document.body.appendChild(document.createElement("br"));
+document.body.appendChild(slide);
+
+let ctx = cnv.getContext("2d");
+
+
+function em(){
+	try {
+		ExpectationMaximization( dataset, 3 );
+	} catch(e){
+		em();
+	}
+	if(isNaN(gammaDistr[gammaDistr.length-1][0][0])) {
+		em();
+	}
+}
+em();
+
+
+function linint(low, high, zero){
+	// low = zero -> return 0
+	// high = zero -> return 1
+	// zero = (low + high)*0.5 -> return 0.5
+	// In general, return alpha s.t. zero = low*(1 - alpha) + high*alpha
+	return (zero - low) / (high - low);
+}
+
+function drawsquare(x0, y0, x1, y1, c00, c01, c10, c11, threshold){
+	// For the marching squares algorithm
+	let t = linint(c00, c10, threshold);
+	let b = linint(c01, c11, threshold);
+	let l = linint(c00, c01, threshold);
+	let r = linint(c10, c11, threshold);
+	
+	let top = [ (1-t)*x0 + t*x1 + 500, y0 + 300 ];
+	let bot = [ (1-b)*x0 + b*x1 + 500, y1 + 300 ];
+	let lft = [ x0 + 500, (1-l)*y0 + l*y1 + 300 ];
+	let rgt = [ x1 + 500, (1-r)*y0 + r*y1 + 300 ];
+	
+	let segments = [ [],                            // 0
+	                 [ [top, lft] ],                // 1
+	                 [ [bot, lft] ],                // 2
+	                 [ [top, bot] ],                // 3
+	                 [ [top, rgt] ],                // 4
+	                 [ [lft, rgt] ],                // 5
+	                 [ [top, lft], [bot, rgt] ],    // 6
+	                 [ [bot, rgt] ],                // 7
+	                 [ [bot, rgt] ],                // 8
+	                 [ [top, rgt], [bot, lft] ],    // 9
+	                 [ [lft, rgt] ],                // 10
+	                 [ [top, rgt] ],                // 11
+	                 [ [top, bot] ],                // 12
+	                 [ [lft, bot] ],                // 13
+	                 [ [top, lft] ],                // 14
+	                 [] ];                          // 15
+	
+	let s = 0;
+	if(c00 > threshold) s += 1;
+	if(c01 > threshold) s += 2;
+	if(c10 > threshold) s += 4;
+	if(c11 > threshold) s += 8;
+	
+	for( let [p1, p2] of segments[s] ){
+		ctx.beginPath();
+		ctx.moveTo(p1[0], p1[1]);
+		ctx.lineTo(p2[0], p2[1]);
+		ctx.stroke();
+	}
+}
+
+function RGBmix( red, green, blue ){
+	let R = Math.round(255 * red);
+	let G = Math.round(255 * green);
+	let B = Math.round(255 * blue);
+	let r = R.toString(16);
+	if(r.length < 2) r = '0' + r;
+	let g = G.toString(16);
+	if(g.length < 2) g = '0' + g;
+	let b = B.toString(16);
+	if(b.length < 2) b = '0' + b;
+	return '#' + r + g + b;
+}
+
+function drawdist( cdist = allDistr.length - 1 ){
+	ctx.clearRect(0, 0, cnv.width, cnv.height);
+	for(let i in dataset){
+		let p = dataset[i];
+		let [pr, pg, pb] = gammaDistr[cdist][i];
+		
+		ctx.fillStyle = RGBmix(pr, pg, pb);
+		
+		ctx.beginPath();
+		ctx.arc(p.vec[0] + 500, p.vec[1] + 300, 5, 0, 2 * Math.PI);
+		ctx.fill();
+	}
+
+	for(let i = 0; i < allDistr[cdist].length; ++i){
+		let dist = allDistr[cdist][i];
+		ctx.fillStyle = col[i];
+		ctx.strokeStyle = col[i];
+		
+		ctx.beginPath();
+		ctx.moveTo(allDistr[cdist][i].c.vec[0] + 500 - 5, allDistr[cdist][i].c.vec[1] + 300 - 5);
+		ctx.lineTo(allDistr[cdist][i].c.vec[0] + 500 + 5, allDistr[cdist][i].c.vec[1] + 300 + 5);
+		ctx.stroke();
+		ctx.beginPath();
+		ctx.moveTo(allDistr[cdist][i].c.vec[0] + 500 - 5, allDistr[cdist][i].c.vec[1] + 300 + 5);
+		ctx.lineTo(allDistr[cdist][i].c.vec[0] + 500 + 5, allDistr[cdist][i].c.vec[1] + 300 - 5);
+		ctx.stroke();
+		
+		let mx = allDistr[cdist][i].evaluate( allDistr[cdist][i].c );
+		
+		let incr = 10;
+		
+		let memo = undefined;
+		
+		function geteval(x, y, mx, my, Mx, My, incr){
+			let xx = (x - mx) / incr;
+			let yy = (y - my) / incr;
+			if(memo === undefined) memo = new Array( Math.ceil( (Mx - mx) / incr ) );
+			if(memo[xx] === undefined) memo[xx] = new Array( Math.ceil( (My - my) / incr ) );
+			if(memo[xx][yy] === undefined) memo[xx][yy] = allDistr[cdist][i].evaluate( new Vector( [x, y] ) );
+			return memo[xx][yy];
+		}
+		
+		for(let curve = 1; curve <= 3; ++curve){
+			let threshold = mx / (5 << curve);
+			for(let x = -500; x < 500; x += incr){
+				for(let y = -300; y < 300; y += incr){
+					let c00 = geteval( x       , y       , -500, -300, 500, 300, incr );
+					let c01 = geteval( x       , y + incr, -500, -300, 500, 300, incr );
+					let c10 = geteval( x + incr, y       , -500, -300, 500, 300, incr );
+					let c11 = geteval( x + incr, y + incr, -500, -300, 500, 300, incr );
+					drawsquare(x, y, x+incr, y+incr, c00, c01, c10, c11, threshold);
+				}
+			}
+		}
+	}
+	slide.max = allDistr.length - 1;
+	slide.value = cdist;
+	
+	slide.onchange = function() {
+		drawdist( parseInt(slide.value) );
+	}
+}
+
+drawdist();
+
+function reset(){
+	dataset = generateClusters(3, 50, 100, 20, 100); em(); drawdist();
+}
+
+</script>
+</head>
+
+<body> <br>
+<button onclick="em(); drawdist();">Recompute Gaussian Mixture</button> 
+<button onclick="reset();">Generate New Clusters</button>
+</body>
